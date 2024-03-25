@@ -1,7 +1,10 @@
+use std::collections::HashMap;
 use crate::rdev::{EventType, Key, KeyboardState};
 use crate::windows::common::{get_code, get_scan_code, FALSE, TRUE};
 use crate::windows::keycodes::code_from_key;
 use std::ptr::null_mut;
+use std::sync::RwLock;
+use once_cell::sync::Lazy;
 use winapi::shared::minwindef::{BYTE, HKL, LPARAM, UINT};
 use winapi::um::processthreadsapi::GetCurrentThreadId;
 use winapi::um::winuser;
@@ -34,13 +37,26 @@ impl Keyboard {
     }
 
     pub(crate) unsafe fn get_name(&mut self, lpdata: LPARAM) -> Option<String> {
+        static CACHE: Lazy<RwLock<HashMap<LPARAM, String>>> = Lazy::new(|| RwLock::new(HashMap::new()));
+        if let Ok(map) = CACHE.read() {
+            if let Some(name) = map.get(&lpdata) {
+                return Some(name.clone());
+            }
+        }
+
         // https://gist.github.com/akimsko/2011327
         // https://www.experts-exchange.com/questions/23453780/LowLevel-Keystroke-Hook-removes-Accents-on-French-Keyboard.html
         let code = get_code(lpdata);
         let scan_code = get_scan_code(lpdata);
 
         self.set_global_state()?;
-        self.get_code_name(code, scan_code)
+        let name = self.get_code_name(code, scan_code);
+        if let Some(name) = name.clone() {
+            if let Ok(mut map) = CACHE.write() {
+                map.insert(lpdata, name);
+            }
+        }
+        name
     }
 
     pub(crate) unsafe fn set_global_state(&mut self) -> Option<()> {
