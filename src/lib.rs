@@ -218,6 +218,7 @@
 //! Event data returned by the `listen` and `grab` functions can be serialized and de-serialized with
 //! Serde if you install this library with the `serialize` feature.
 mod rdev;
+
 pub use crate::rdev::{
     Button, DisplayError, Event, EventType, GrabCallback, GrabError, Key, KeyboardState,
     ListenError, SimulateError,
@@ -225,6 +226,7 @@ pub use crate::rdev::{
 
 #[cfg(target_os = "macos")]
 mod macos;
+
 #[cfg(target_os = "macos")]
 pub use crate::macos::Keyboard;
 #[cfg(target_os = "macos")]
@@ -232,6 +234,7 @@ use crate::macos::{display_size as _display_size, listen as _listen, simulate as
 
 #[cfg(target_os = "linux")]
 mod linux;
+
 #[cfg(target_os = "linux")]
 pub use crate::linux::Keyboard;
 #[cfg(target_os = "linux")]
@@ -239,6 +242,7 @@ use crate::linux::{display_size as _display_size, listen as _listen, simulate as
 
 #[cfg(target_os = "windows")]
 mod windows;
+
 #[cfg(target_os = "windows")]
 pub use crate::windows::Keyboard;
 #[cfg(target_os = "windows")]
@@ -265,9 +269,7 @@ use crate::windows::{display_size as _display_size, listen as _listen, simulate 
 ///     }
 /// }
 /// ```
-pub fn listen<T>(callback: T) -> Result<(), ListenError>
-where
-    T: FnMut(Event) + 'static,
+pub fn listen(callback: fn(Event)) -> Result<(), ListenError>
 {
     _listen(callback)
 }
@@ -330,6 +332,7 @@ pub use crate::macos::grab as _grab;
 #[cfg(feature = "unstable_grab")]
 #[cfg(target_os = "windows")]
 pub use crate::windows::grab as _grab;
+
 #[cfg(feature = "unstable_grab")]
 /// Grabbing global events. In the callback, returning None ignores the event
 /// and returning the event let's it pass. There is no modification of the event
@@ -358,8 +361,8 @@ pub use crate::windows::grab as _grab;
 /// ```
 #[cfg(feature = "unstable_grab")]
 pub fn grab<T>(callback: T) -> Result<(), GrabError>
-where
-    T: Fn(Event) -> Option<Event> + 'static,
+    where
+        T: Fn(Event) -> Option<Event> + 'static,
 {
     _grab(callback)
 }

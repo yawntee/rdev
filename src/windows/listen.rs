@@ -1,12 +1,17 @@
-use crate::rdev::{Event, EventType, ListenError};
-use crate::windows::common::{convert, set_key_hook, set_mouse_hook, HookError, HOOK, KEYBOARD};
 use std::os::raw::c_int;
 use std::ptr::null_mut;
+use std::sync::mpsc::{channel, Sender};
+use std::thread;
 use std::time::SystemTime;
+
+use once_cell::sync::OnceCell;
 use winapi::shared::minwindef::{LPARAM, LRESULT, WPARAM};
 use winapi::um::winuser::{CallNextHookEx, GetMessageA, HC_ACTION};
 
-static mut GLOBAL_CALLBACK: Option<Box<dyn FnMut(Event)>> = None;
+use crate::rdev::{Event, EventType, ListenError};
+use crate::windows::common::{convert, HOOK, HookError, KEYBOARD, set_key_hook, set_mouse_hook};
+
+static TRANSFER: OnceCell<Sender<(WPARAM, LPARAM)>> = OnceCell::new();
 
 impl From<HookError> for ListenError {
     fn from(error: HookError) -> Self {
@@ -19,34 +24,41 @@ impl From<HookError> for ListenError {
 
 unsafe extern "system" fn raw_callback(code: c_int, param: WPARAM, lpdata: LPARAM) -> LRESULT {
     if code == HC_ACTION {
-        let opt = convert(param, lpdata);
-        if let Some(event_type) = opt {
-            let name = match &event_type {
-                EventType::KeyPress(_key) => match (*KEYBOARD).lock() {
-                    Ok(mut keyboard) => keyboard.get_name(lpdata),
-                    Err(_) => None,
-                },
-                _ => None,
-            };
-            let event = Event {
-                event_type,
-                time: SystemTime::now(),
-                name,
-            };
-            if let Some(callback) = &mut GLOBAL_CALLBACK {
-                callback(event);
-            }
+        if let Some(transfer) = TRANSFER.get() {
+            let _ = transfer.send((param, lpdata));
         }
     }
     CallNextHookEx(HOOK, code, param, lpdata)
 }
 
-pub fn listen<T>(callback: T) -> Result<(), ListenError>
-where
-    T: FnMut(Event) + 'static,
+pub fn listen(callback: fn(Event)) -> Result<(), ListenError>
 {
     unsafe {
-        GLOBAL_CALLBACK = Some(Box::new(callback));
+        let (tx, rx) = channel();
+
+        let _ = TRANSFER.get_or_init(move || tx);
+
+        thread::spawn(move || {
+            while let Ok((param, lpdata)) = rx.recv() {
+                let opt = convert(param, lpdata);
+                if let Some(event_type) = opt {
+                    let name = match &event_type {
+                        EventType::KeyPress(_key) => match (*KEYBOARD).lock() {
+                            Ok(mut keyboard) => keyboard.get_name(lpdata),
+                            Err(_) => None,
+                        },
+                        _ => None,
+                    };
+                    let event = Event {
+                        event_type,
+                        time: SystemTime::now(),
+                        name,
+                    };
+                    callback(event)
+                }
+            }
+        });
+
         set_key_hook(raw_callback)?;
         set_mouse_hook(raw_callback)?;
 
