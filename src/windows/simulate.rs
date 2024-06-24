@@ -5,14 +5,8 @@ use std::mem::size_of;
 use winapi::ctypes::{c_int, c_short};
 use winapi::shared::minwindef::{DWORD, UINT, WORD};
 use winapi::shared::ntdef::LONG;
-use winapi::um::winuser::{
-    GetSystemMetrics, INPUT_u, SendInput, INPUT, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT,
-    KEYEVENTF_KEYUP, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN,
-    MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE,
-    MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL,
-    MOUSEEVENTF_XDOWN, MOUSEEVENTF_XUP, MOUSEINPUT, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
-    WHEEL_DELTA,
-};
+use winapi::um::winuser::{GetSystemMetrics, INPUT_u, SendInput, INPUT, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT, KEYEVENTF_KEYUP, MOUSEEVENTF_ABSOLUTE, MOUSEEVENTF_HWHEEL, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN, MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_MOVE, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEEVENTF_VIRTUALDESK, MOUSEEVENTF_WHEEL, MOUSEEVENTF_XDOWN, MOUSEEVENTF_XUP, MOUSEINPUT, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, WHEEL_DELTA, KEYEVENTF_EXTENDEDKEY, MapVirtualKeyW, MAPVK_VK_TO_VSC};
+
 /// Not defined in win32 but define here for clarity
 static KEYEVENTF_KEYDOWN: DWORD = 0;
 
@@ -45,13 +39,18 @@ fn sim_mouse_event(flags: DWORD, data: DWORD, dx: LONG, dy: LONG) -> Result<(), 
     }
 }
 
-fn sim_keyboard_event(flags: DWORD, vk: WORD, scan: WORD) -> Result<(), SimulateError> {
+fn sim_keyboard_event(flags: DWORD, vk: WORD) -> Result<(), SimulateError> {
+    let scan = unsafe { MapVirtualKeyW(vk as UINT, MAPVK_VK_TO_VSC) as WORD };
     let mut union: INPUT_u = unsafe { std::mem::zeroed() };
     let inner_union = unsafe { union.ki_mut() };
     *inner_union = KEYBDINPUT {
         wVk: vk,
         wScan: scan,
-        dwFlags: flags,
+        dwFlags: flags | {
+            if scan & 0xE0 != 0 {
+                KEYEVENTF_EXTENDEDKEY
+            } else { 0 }
+        },
         time: 0,
         dwExtraInfo: 0,
     };
@@ -77,11 +76,11 @@ pub fn simulate(event_type: &EventType) -> Result<(), SimulateError> {
     match event_type {
         EventType::KeyPress(key) => {
             let code = code_from_key(*key).ok_or(SimulateError)?;
-            sim_keyboard_event(KEYEVENTF_KEYDOWN, code, 0)
+            sim_keyboard_event(KEYEVENTF_KEYDOWN, code)
         }
         EventType::KeyRelease(key) => {
             let code = code_from_key(*key).ok_or(SimulateError)?;
-            sim_keyboard_event(KEYEVENTF_KEYUP, code, 0)
+            sim_keyboard_event(KEYEVENTF_KEYUP, code)
         }
         EventType::ButtonPress(button) => match button {
             Button::Left => sim_mouse_event(MOUSEEVENTF_LEFTDOWN, 0, 0, 0),
